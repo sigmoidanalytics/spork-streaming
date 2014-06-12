@@ -36,6 +36,7 @@ export SPARK_MASTER=spark://127.0.0.1:7077
 #export MESOS_NATIVE_LIBRARY= <libmesos.so>
 ####
 
+export PIG_HOME=`dirname "$this"`
 
 # jars to ship, pig-withouthadoop.jar to workaround Classloader issue
 
