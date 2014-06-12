@@ -12,8 +12,15 @@
 # Follow this guide for for enabling running spork: 
 ##	http://docs.sigmoidanalytics.com/index.php/Setting_up_spork_with_spark_0.8.1
 
-export HADOOP_CONF_DIR=/home/akhld/mobi/localcluster/hadoop/conf
-export HADOOP_HOME=/home/akhld/mobi/localcluster/hadoop/
+
+if [ -z "$HADOOP_CONF_DIR" ]; then
+    echo "You need to set HADOOP_CONF_DIR"
+    exit 1
+fi  
+if [ -z "$HADOOP_HOME" ]; then
+    echo "You need to set HADOOP_HOME"
+    exit 1
+fi  
 
 # Not necessary after SPARK-1053
 #export SPARK_YARN_APP_JAR=build/pig-withouthadoop.jar 
@@ -33,20 +40,21 @@ export SPARK_MASTER=spark://127.0.0.1:7077
 # jars to ship, pig-withouthadoop.jar to workaround Classloader issue
 
 # Pig settings
-export PIG_CLASSPATH=/home/akhld/mobi/localcluster/codes/pig/build/ivy/lib/Pig/netty-3.6.6.Final.jar:/home/akhld/mobi/localcluster/codes/pig/pig-withouthadoop.jar:/home/akhld/mobi/localcluster/codes/pig/lib/spark/mesos-0.9.0.jar:/home/akhld/mobi/localcluster/codes/pig/build/ivy/lib/Pig/*:$HADOOP_CONF_DIR:/home/akhld/mobi/localcluster/codes/pig/conf
-#export PIG_CLASSPATH=/home/akhld/mobi/localcluster/codes/pig/pig-withouthadoop.jar:/home/akhld/mobi/localcluster/hadoop/:/home/akhld/mobi/localcluster/codes/pig/conf
+if [ -z "$PIG_HOME" ]; then
+    echo "You need to set PIG_HOME"
+    exit 1
+fi  
+export PIG_CLASSPATH=$PIG_HOME/build/ivy/lib/Pig/netty-3.6.6.Final.jar:$PIG_HOME/pig-withouthadoop.jar:$PIG_HOME/lib/spark/mesos-0.9.0.jar:$PIG_HOME/build/ivy/lib/Pig/*:$HADOOP_CONF_DIR:$PIG_HOME/conf
 
-export SPARK_JARS="/home/akhld/mobi/localcluster/codes/pig/build/pig-0.12.0-SNAPSHOT-withdependencies.jar,/home/akhld/mobi/localcluster/codes/pig/build/ivy/lib/Pig/twitter4j-core-3.0.3.jar,/home/akhld/mobi/localcluster/codes/pig/build/ivy/lib/Pig/twitter4j-stream-3.0.3.jar"
 
-export SPARK_PIG_JAR=/home/akhld/mobi/localcluster/codes/pig/pig.jar
+export SPARK_JARS=$PIG_HOME/build/pig-0.12.0-SNAPSHOT-withdependencies.jar,$PIG_HOME/build/ivy/lib/Pig/twitter4j-core-3.0.3.jar,$PIG_HOME/build/ivy/lib/Pig/twitter4j-stream-3.0.3.jar
 
-#export HADOOP_COMMON_HOME=/home/akhld/mobi/localcluster/hadoop
-#export HADOOP_INSTALL=/home/akhld/mobi/localcluster/hadoop
-#export PIG_CLASSPATH=/home/akhld/mobi/localcluster/hadoop/:/home/akhld/mobi/localcluster/codes/pig/conf
-export PIG_HOME=/home/akhld/mobi/localcluster/codes/pig
-export SPARK_HOME=/home/akhld/mobi/localcluster/spark
-#export SPARK_JAR=/home/akhld/mobi/localcluster/codes/pig/build/ivy/lib/Pig/spark-core_2.9.3-0.8.1-incubating.jar
-#export SPARK_MASTER=spark://akhldz:7077
+export SPARK_PIG_JAR=$PIG_HOME/pig.jar
+
+if [ -z "$SPARK_HOME" ]; then
+    echo "You need to set SPARK_HOME"
+    exit 1
+fi  
 
 # Cluster settings
 export SPARK_WORKER_CORES=1
