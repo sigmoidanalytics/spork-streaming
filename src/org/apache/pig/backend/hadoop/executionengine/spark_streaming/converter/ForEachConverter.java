@@ -27,11 +27,17 @@ public class ForEachConverter implements POConverter<Tuple, Tuple, POForEach> {
     @Override
     public JavaDStream<Tuple> convert(List<JavaDStream<Tuple>> predecessors,
 			POForEach physicalOperator) throws IOException {
+    	
+    	
         SparkUtil.assertPredecessorSize(predecessors, physicalOperator, 1);
         JavaDStream<Tuple> rdd = predecessors.get(0);
+        
+                
         ForEachFunction forEachFunction = new ForEachFunction(physicalOperator);
         return new JavaDStream<Tuple>(rdd.dstream().mapPartitions(forEachFunction, true, SparkUtil.getManifest(Tuple.class)),
         		SparkUtil.getManifest(Tuple.class));
+        
+        
     }
 
     private static class ForEachFunction extends Function<Iterator<Tuple>, Iterator<Tuple>>

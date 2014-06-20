@@ -25,7 +25,7 @@ import java.util.Properties;
 
 import org.apache.hadoop.conf.Configuration;
 
-public class UDFContext {
+public class UDFContext implements Serializable{
     
     private Configuration jconf = null;
     private HashMap<UDFContextKey, Properties> udfConfs;

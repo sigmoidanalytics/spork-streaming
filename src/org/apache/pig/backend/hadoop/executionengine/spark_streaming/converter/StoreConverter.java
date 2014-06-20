@@ -69,8 +69,6 @@ public class StoreConverter implements POConverter<Tuple, Tuple2<Text, Tuple>, P
 		//POStore poStore = configureStorer(storeJobConf, physicalOperator);
 
 		//rdd.print();
-
-		System.out.println("DCount ====>>>" +  rdd.dstream().count());
 		testFunction fnc = new testFunction();
 
 		/*		
@@ -79,9 +77,7 @@ public class StoreConverter implements POConverter<Tuple, Tuple2<Text, Tuple>, P
 		dts.saveAsTextFiles(poStore.getSFile().getFileName(), "" + System.currentTimeMillis());
 		*/
 
-		//rdd.dstream().saveAsObjectFiles(poStore.getSFile().getFileName(), "" + System.currentTimeMillis());
-
-
+		
 		DStream<Tuple2<Text, Tuple>> dstatuses = rdd.dstream().map(FROM_TUPLE_FUNCTION, SparkUtil.<Text, Tuple>getTuple2Manifest());
 
 		//dstatuses.print();
@@ -114,7 +110,12 @@ public class StoreConverter implements POConverter<Tuple, Tuple2<Text, Tuple>, P
 
 		JavaDStream<Tuple> hdfsTuple = new JavaDStream<Tuple>(dstatuses.map(TO_VALUE_FUNCTION,SparkUtil.getManifest(Tuple.class)),SparkUtil.getManifest(Tuple.class));
 
+		//hdfsTuple.dstream().saveAsTextFiles("/tmp/test","lol");
+
+		//hdfsTuple.print();
+		
 		return hdfsTuple;
+		
 	}
 
 	private static class testFunction extends Function<Tuple,Text> implements Serializable {

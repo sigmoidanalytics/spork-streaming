@@ -27,7 +27,7 @@ abstract class POOutputConsumerIterator implements
             }
             // see PigGenericMapBase
             if (result == null) {
-                if (!input.hasNext()) {
+            	if (!input.hasNext()) {
                     finished = true;
                     return;
                 }

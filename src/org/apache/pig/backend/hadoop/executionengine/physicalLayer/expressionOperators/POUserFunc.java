@@ -20,8 +20,10 @@ package org.apache.pig.backend.hadoop.executionengine.physicalLayer.expressionOp
 
 import static org.apache.pig.PigConfiguration.TIME_UDFS_PROP;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.PrintWriter;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Properties;
@@ -42,6 +44,7 @@ import org.apache.pig.backend.hadoop.executionengine.physicalLayer.Result;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.plans.PhyPlanVisitor;
 import org.apache.pig.backend.hadoop.executionengine.physicalLayer.util.MonitoredUDFExecutor;
 import org.apache.pig.builtin.MonitoredUDF;
+import org.apache.pig.builtin.PigStorage;
 import org.apache.pig.data.DataType;
 import org.apache.pig.data.SchemaTupleClassGenerator.GenContext;
 import org.apache.pig.data.SchemaTupleFactory;
@@ -53,6 +56,7 @@ import org.apache.pig.impl.logicalLayer.schema.Schema;
 import org.apache.pig.impl.plan.NodeIdGenerator;
 import org.apache.pig.impl.plan.OperatorKey;
 import org.apache.pig.impl.plan.VisitorException;
+import org.apache.pig.impl.util.ObjectSerializer;
 import org.apache.pig.impl.util.UDFContext;
 import org.apache.pig.tools.pigstats.PigStatusReporter;
 
@@ -142,6 +146,8 @@ public class POUserFunc extends ExpressionOperator {
         //is set up correctly with the reporter and pigLogger references
         this.func.setReporter(getReporter());
         this.func.setPigLogger(pigLogger);
+        
+                
     }
 
     private transient TupleMaker inputTupleMaker;
@@ -212,9 +218,28 @@ public class POUserFunc extends ExpressionOperator {
             // tuple factory
             boolean knownSize = usingSchemaTupleFactory;
             int knownIndex = 0;
-            if (inputTupleMaker == null) {
-                inputTupleMaker = TupleFactory.getInstance();
+            
+ /*           if (inputTupleMaker == null) {
+                //inputTupleMaker = TupleFactory.getInstance();
+            	 Schema tmpS = func.getInputSchema();
+//            	 inputTupleMaker = SchemaTupleFactory.getInstance(tmpS, false, GenContext.UDF);
+                
+                inputTupleMaker = SchemaTupleFactory.getInstance(tmpS, false, GenContext.UDF);
+                if (inputTupleMaker == null) {
+                    LOG.debug("No SchemaTupleFactory found for Schema ["+tmpS+"], using default TupleFactory");
+                    usingSchemaTupleFactory = false;
+                } else {
+                    LOG.debug("Using SchemaTupleFactory for Schema: " + tmpS);
+                    usingSchemaTupleFactory = true;
+                }
+                
+                if (inputTupleMaker == null) {
+                    inputTupleMaker = TupleFactory.getInstance();
+                }
+                 
             }
+*/
+            
             res.result = inputTupleMaker.newTuple();
 
             Result temp = null;
@@ -517,7 +542,7 @@ public class POUserFunc extends ExpressionOperator {
     @Override
     public String name() {
         return "POUserFunc" + "(" + funcSpec.toString() + ")" + "[" + DataType.findTypeName(resultType) + "]" + " - " + mKey.toString();
-    }
+     }
 
     @Override
     public boolean supportsMultipleInputs() {

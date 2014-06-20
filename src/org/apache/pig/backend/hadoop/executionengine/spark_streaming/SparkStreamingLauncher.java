@@ -129,11 +129,16 @@ public class SparkStreamingLauncher extends Launcher {
             physicalToRDD(physicalPlan, poStore, mapOfDStreams, convertMap);
             stats.addOutputInfo(poStore, 1, 1, true, c); // TODO: use real values
         }
+        
+        System.out.println("Test Test");
         sparkContext.start();
+                      
         return stats;
     }
 
     private static void startSparkIfNeeded() throws PigException {
+    	
+    	
         if (sparkContext == null) {
             String master = System.getenv("SPARK_MASTER");
             if (master == null) {
@@ -182,6 +187,8 @@ public class SparkStreamingLauncher extends Launcher {
             System.setProperty("spark.executor.memory", "" + "512m");
             JavaStreamingContext javaContext = new JavaStreamingContext(master, "Spork", new Duration(6000), sparkHome, jars.toArray(new String[jars.size()]));
             sparkContext = javaContext;
+           
+            
         }
     }
 

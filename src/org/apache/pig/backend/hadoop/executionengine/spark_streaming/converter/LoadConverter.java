@@ -117,7 +117,7 @@ public class LoadConverter implements POConverter<Tuple, Tuple, POLoad> {
 			
 			JavaDStream<Tuple> hdfsTuple = new JavaDStream<Tuple>(hadoopRDD.map(TO_VALUE_FUNCTION,SparkUtil.getManifest(Tuple.class)),SparkUtil.getManifest(Tuple.class));
 
-			hdfsTuple.print();
+			//hdfsTuple.print();
 			
 			return hdfsTuple;
 			
