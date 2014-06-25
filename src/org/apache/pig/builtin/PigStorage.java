@@ -261,14 +261,15 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 	                		}
 	                	}
 	                	br.close();
-	                	*/
-                		
-                		Path pt=new Path("/tmp/required_cols");
+	                	*/ // ----------------
+	                	 
+                		Path pt=new Path("hdfs://localhost:9000/tmp/required_cols");
                 		Configuration confF = new Configuration();
                         confF.addResource(new Path(System.getenv("HADOOP_CONF_DIR") + "/core-site.xml"));
                         confF.addResource(new Path(System.getenv("HADOOP_CONF_DIR") + "/hdfs-site.xml"));
                         
-                        FileSystem fileSystem = FileSystem.get(confF);
+                        //FileSystem fileSystem = FileSystem.get(confF);
+                        FileSystem fileSystem = FileSystem.get(pt.toUri(), confF);
                         
                 		BufferedReader br=new BufferedReader(new InputStreamReader(fileSystem.open(pt)));
                 		String line;

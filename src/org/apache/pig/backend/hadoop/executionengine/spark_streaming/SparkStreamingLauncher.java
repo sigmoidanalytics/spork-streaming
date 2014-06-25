@@ -6,14 +6,20 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import com.google.common.collect.Lists;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.mapred.JobClient;
+import org.apache.hadoop.mapred.JobConf;
+import org.apache.hadoop.mapred.jobcontrol.JobControl;
 import org.apache.pig.PigConstants;
 import org.apache.pig.PigException;
+import org.apache.pig.backend.hadoop.datastorage.ConfigurationUtil;
+import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.JobControlCompiler;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.Launcher;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.MRCompiler;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.plans.MROperPlan;
@@ -51,6 +57,7 @@ import org.apache.pig.data.SchemaTupleBackend;
 import org.apache.pig.data.Tuple;
 import org.apache.pig.impl.PigContext;
 import org.apache.pig.impl.plan.OperatorKey;
+import org.apache.pig.impl.util.UDFContext;
 import org.apache.pig.tools.pigstats.PigStats;
 import org.apache.pig.tools.pigstats.SparkStats;
 import org.apache.spark.rdd.RDD;
@@ -63,6 +70,8 @@ import org.apache.spark.streaming.Duration;
 import org.apache.spark.streaming.StreamingContext;
 import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
+import org.apache.pig.impl.util.Utils;
+
 
 /**
  * @author billg
@@ -84,7 +93,7 @@ public class SparkStreamingLauncher extends Launcher {
         LOG.debug(physicalPlan);
         Configuration c = SparkUtil.newJobConf(pigContext);
         c.set(PigConstants.LOCAL_CODE_DIR,System.getProperty("java.io.tmpdir"));
-
+                
         SchemaTupleBackend.initialize(c, pigContext);
 /////////
 // stolen from MapReduceLauncher
@@ -98,10 +107,34 @@ public class SparkStreamingLauncher extends Launcher {
 //        kdv.visit();
 
 /////////
+        
+        //UDFContext implementation starts here
+        
+        /*Configuration conf = ConfigurationUtil.toConfiguration(pigContext.getProperties());
+        JobControlCompiler jcc = new JobControlCompiler(pigContext, c);
+        
+        JobControl jc = jcc.compile(plan, grpName);
+        
+     // Set the thread UDFContext so registered classes are available.
+        final UDFContext udfContext = UDFContext.getUDFContext();
+        Thread jcThread = new Thread(jc, "JobControl") {
+            @Override
+            public void run() {
+                UDFContext.setUdfContext(udfContext.clone());
+                super.run();
+            }
+        };
+        
+        jcThread.setContextClassLoader(PigContext.getClassLoader());
+        
+        jcThread.start();*/
+        
+        //UDFContext implementation ends here
 
         startSparkIfNeeded();
         Configuration newC = sparkContext.ssc().sc().hadoopConfiguration();
         newC.set("pig.udf.context",c.get("pig.udf.context") );
+        
         // initialize the supported converters
         Map<Class<? extends PhysicalOperator>, POConverter> convertMap =
                 new HashMap<Class<? extends PhysicalOperator>, POConverter>();
@@ -130,7 +163,8 @@ public class SparkStreamingLauncher extends Launcher {
             stats.addOutputInfo(poStore, 1, 1, true, c); // TODO: use real values
         }
         
-        System.out.println("Test Test");
+        System.out.println("Test Test");        
+        
         sparkContext.start();
                       
         return stats;
