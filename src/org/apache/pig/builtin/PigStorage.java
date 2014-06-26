@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -43,6 +44,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.compress.BZip2Codec;
 import org.apache.hadoop.io.compress.CompressionCodec;
@@ -72,6 +74,8 @@ import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigSplit;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigTextInputFormat;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigTextOutputFormat;
+import org.apache.pig.backend.hadoop.executionengine.spark_streaming.SparkStreamingLauncher;
+import org.apache.pig.backend.hadoop.executionengine.spark_streaming.SparkUtil;
 import org.apache.pig.bzip2r.Bzip2TextInputFormat;
 import org.apache.pig.data.DataByteArray;
 import org.apache.pig.data.Tuple;
@@ -137,550 +141,518 @@ import org.apache.pig.parser.ParserException;
 @SuppressWarnings("unchecked")
 public class PigStorage extends FileInputLoadFunc implements StoreFuncInterface,
 LoadPushDown, LoadMetadata, StoreMetadata {
-    protected RecordReader in = null;
-    protected RecordWriter writer = null;
-    protected final Log mLog = LogFactory.getLog(getClass());
-    protected String signature;
+	protected RecordReader in = null;
+	protected RecordWriter writer = null;
+	protected final Log mLog = LogFactory.getLog(getClass());
+	protected String signature;
 
-    private byte fieldDel = '\t';
-    private ArrayList<Object> mProtoTuple = null;
-    private TupleFactory mTupleFactory = TupleFactory.getInstance();
-    private String loadLocation;
+	private byte fieldDel = '\t';
+	private ArrayList<Object> mProtoTuple = null;
+	private TupleFactory mTupleFactory = TupleFactory.getInstance();
+	private String loadLocation;
 
-    boolean isSchemaOn = false;
-    boolean dontLoadSchema = false;
-    protected ResourceSchema schema;
-    protected LoadCaster caster;
+	boolean isSchemaOn = false;
+	boolean dontLoadSchema = false;
+	protected ResourceSchema schema;
+	protected LoadCaster caster;
 
-    private final CommandLine configuredOptions;
-    private final Options validOptions = new Options();
-    private final static CommandLineParser parser = new GnuParser();
+	private final CommandLine configuredOptions;
+	private final Options validOptions = new Options();
+	private final static CommandLineParser parser = new GnuParser();
 
-    protected boolean[] mRequiredColumns = null;
-    private boolean mRequiredColumnsInitialized = false;
+	protected boolean[] mRequiredColumns = null;
+	private boolean mRequiredColumnsInitialized = false;
 
-    // Indicates whether the input file name/path should be read.
-    private boolean tagFile = false;
-    private static final String TAG_SOURCE_FILE = "tagFile";
-    private boolean tagPath = false;
-    private static final String TAG_SOURCE_PATH = "tagPath";
-    private Path sourcePath = null;
+	// Indicates whether the input file name/path should be read.
+	private boolean tagFile = false;
+	private static final String TAG_SOURCE_FILE = "tagFile";
+	private boolean tagPath = false;
+	private static final String TAG_SOURCE_PATH = "tagPath";
+	private Path sourcePath = null;
 
-    private void populateValidOptions() {
-        validOptions.addOption("schema", false, "Loads / Stores the schema of the relation using a hidden JSON file.");
-        validOptions.addOption("noschema", false, "Disable attempting to load data schema from the filesystem.");
-        validOptions.addOption(TAG_SOURCE_FILE, false, "Appends input source file name to beginning of each tuple.");
-        validOptions.addOption(TAG_SOURCE_PATH, false, "Appends input source file path to beginning of each tuple.");
-        validOptions.addOption("tagsource", false, "Appends input source file name to beginning of each tuple.");
-    }
+	private void populateValidOptions() {
+		validOptions.addOption("schema", false, "Loads / Stores the schema of the relation using a hidden JSON file.");
+		validOptions.addOption("noschema", false, "Disable attempting to load data schema from the filesystem.");
+		validOptions.addOption(TAG_SOURCE_FILE, false, "Appends input source file name to beginning of each tuple.");
+		validOptions.addOption(TAG_SOURCE_PATH, false, "Appends input source file path to beginning of each tuple.");
+		validOptions.addOption("tagsource", false, "Appends input source file name to beginning of each tuple.");
+	}
 
-    public PigStorage() {
-        this("\t", "");
-    }
+	public PigStorage() {
+		this("\t", "");
+	}
 
-    /**
-     * Constructs a Pig loader that uses specified character as a field delimiter.
-     *
-     * @param delimiter
-     *            the single byte character that is used to separate fields.
-     *            ("\t" is the default.)
-     * @throws ParseException
-     */
-    public PigStorage(String delimiter) {
-        this(delimiter, "");
-    }
+	/**
+	 * Constructs a Pig loader that uses specified character as a field delimiter.
+	 *
+	 * @param delimiter
+	 *            the single byte character that is used to separate fields.
+	 *            ("\t" is the default.)
+	 * @throws ParseException
+	 */
+	public PigStorage(String delimiter) {
+		this(delimiter, "");
+	}
 
-    /**
-     * Constructs a Pig loader that uses specified character as a field delimiter.
-     * <p>
-     * Understands the following options, which can be specified in the second paramter:
-     * <ul>
-     * <li><code>-schema</code> Loads / Stores the schema of the relation using a hidden JSON file.
-     * <li><code>-noschema</code> Ignores a stored schema during loading.
-     * <li><code>-tagFile</code> Appends input source file name to beginning of each tuple.
-     * <li><code>-tagPath</code> Appends input source file path to beginning of each tuple.
-     * </ul>
-     * @param delimiter the single byte character that is used to separate fields.
-     * @param options a list of options that can be used to modify PigStorage behavior
-     * @throws ParseException
-     */
-    public PigStorage(String delimiter, String options) {
-        populateValidOptions();
-        fieldDel = StorageUtil.parseFieldDel(delimiter);
-        String[] optsArr = options.split(" ");
-        try {
-            configuredOptions = parser.parse(validOptions, optsArr);
-            isSchemaOn = configuredOptions.hasOption("schema");
-            dontLoadSchema = configuredOptions.hasOption("noschema");
-            tagFile = configuredOptions.hasOption(TAG_SOURCE_FILE);
-            tagPath = configuredOptions.hasOption(TAG_SOURCE_PATH);
-            // TODO: Remove -tagsource in 0.13. For backward compatibility, we
-            // need tagsource to be supported until at least 0.12
-            if (configuredOptions.hasOption("tagsource")) {
-                mLog.warn("'-tagsource' is deprecated. Use '-tagFile' instead.");
-                tagFile = true;
-            }
-            
-    			
-        } catch (ParseException e) {
-            HelpFormatter formatter = new HelpFormatter();
-            formatter.printHelp( "PigStorage(',', '[options]')", validOptions);
-            // We wrap this exception in a Runtime exception so that
-            // existing loaders that extend PigStorage don't break
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public Tuple getNext() throws IOException {
-        mProtoTuple = new ArrayList<Object>();
-        if (!mRequiredColumnsInitialized) {
-            if (signature!=null) {
-                Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass());
-                mRequiredColumns = (boolean[])ObjectSerializer.deserialize(p.getProperty(signature));
-                
-                //mRequiredColumns = new boolean[]{false,false,true};
-                /* Lame Hack begins */
-                if(mRequiredColumns == null){
-                	try{
-                		/*
-	                	BufferedReader br = new BufferedReader(new FileReader("required_cols"));
-	                	String line;
-	                	while ((line = br.readLine()) != null) {
-	                	   
-	                		String[] tocks = line.split(",");
-	                		mRequiredColumns = new boolean[tocks.length];
-	                		
-	                		for(int il=0;il<tocks.length;il++){
-	                			
-	                			if(tocks[il].equalsIgnoreCase("true")){
-	                				mRequiredColumns[il] = true;
-	                			}else if(tocks[il].equalsIgnoreCase("true")){
-	                				mRequiredColumns[il] = false;
-	                			}
-	                		}
-	                	}
-	                	br.close();
-	                	*/ // ----------------
-	                	 
-                		Path pt=new Path("hdfs://localhost:9000/tmp/required_cols");
-                		Configuration confF = new Configuration();
-                        confF.addResource(new Path(System.getenv("HADOOP_CONF_DIR") + "/core-site.xml"));
-                        confF.addResource(new Path(System.getenv("HADOOP_CONF_DIR") + "/hdfs-site.xml"));
-                        
-                        //FileSystem fileSystem = FileSystem.get(confF);
-                        FileSystem fileSystem = FileSystem.get(pt.toUri(), confF);
-                        
-                		BufferedReader br=new BufferedReader(new InputStreamReader(fileSystem.open(pt)));
-                		String line;
-                		line=br.readLine();
-                		while (line != null){
-                		    System.out.println(line);
-                		    // be sure to read the next line otherwise you'll get an infinite loop
-                		    
-                		    
-                		    String[] tocks = line.split(",");
-                		    if(tocks.length > 0){
-		                		mRequiredColumns = new boolean[tocks.length];
-		                		
-		                		for(int il=0;il<tocks.length;il++){
-		                			
-		                			if(tocks[il].equalsIgnoreCase("true")){
-		                				mRequiredColumns[il] = true;
-		                			}else if(tocks[il].equalsIgnoreCase("true")){
-		                				mRequiredColumns[il] = false;
-		                			}
-		                		}
-                		    }
-                		    
-                		    line = br.readLine();
-                		}
-                		
-                		br.close();
-                		
-                	}catch(Exception e){ e.printStackTrace(); System.out.println("Lame hack fails!!"); }
-                	
-                }
-                
-                /* Lame Hack Ends */
-                
-            }
-            mRequiredColumnsInitialized = true;
-        }
-        //Prepend input source path if source tagging is enabled
-        if(tagFile) {
-            mProtoTuple.add(new DataByteArray(sourcePath.getName()));
-        } else if (tagPath) {
-            mProtoTuple.add(new DataByteArray(sourcePath.toString()));
-        }
-
-        try {
-            boolean notDone = in.nextKeyValue();
-            if (!notDone) {
-                return null;
-            }
-            Text value = (Text) in.getCurrentValue();
-            byte[] buf = value.getBytes();
-            int len = value.getLength();
-            int start = 0;
-            int fieldID = 0;
-            for (int i = 0; i < len; i++) {
-                if (buf[i] == fieldDel) {
-                    if (mRequiredColumns==null || (mRequiredColumns.length>fieldID && mRequiredColumns[fieldID]))
-                        addTupleValue(mProtoTuple, buf, start, i);
-                    start = i + 1;
-                    fieldID++;
-                }
-            }
-            // pick up the last field
-            if (start <= len && (mRequiredColumns==null || (mRequiredColumns.length>fieldID && mRequiredColumns[fieldID]))) {
-                addTupleValue(mProtoTuple, buf, start, len);
-            }
-            Tuple t =  mTupleFactory.newTupleNoCopy(mProtoTuple);
-
-            return dontLoadSchema ? t : applySchema(t);
-        } catch (InterruptedException e) {
-            int errCode = 6018;
-            String errMsg = "Error while reading input";
-            throw new ExecException(errMsg, errCode,
-                    PigException.REMOTE_ENVIRONMENT, e);
-        }
-    }
-
-    private Tuple applySchema(Tuple tup) throws IOException {
-    	
-        if ( caster == null) {
-            caster = getLoadCaster();
-        }
-        if (signature != null && schema == null) {
-            Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass(),
-                    new String[] {signature});
-            String serializedSchema = p.getProperty(signature+".schema");
-            if (serializedSchema == null) return tup;
-            try {
-                schema = new ResourceSchema(Utils.getSchemaFromString(serializedSchema));
-            } catch (ParserException e) {
-                mLog.error("Unable to parse serialized schema " + serializedSchema, e);
-            }
-        }
-
-        if (schema != null) {
-
-            ResourceFieldSchema[] fieldSchemas = schema.getFields();
-            int tupleIdx = 0;
-            // If some fields have been projected out, the tuple
-            // only contains required fields.
-            // We walk the requiredColumns array to find required fields,
-            // and cast those.
-            for (int i = 0; i < Math.min(fieldSchemas.length, tup.size()); i++) {
-                if (mRequiredColumns == null || (mRequiredColumns.length>i && mRequiredColumns[i])) {
-                    Object val = null;
-                    if(tup.get(tupleIdx) != null){
-                        byte[] bytes = ((DataByteArray) tup.get(tupleIdx)).get();
-                        val = CastUtils.convertToType(caster, bytes,
-                                fieldSchemas[i], fieldSchemas[i].getType());
-                        tup.set(tupleIdx, val);
-                    }
-                    tupleIdx++;
-                }
-            }
-            for (int i = tup.size(); i < fieldSchemas.length; i++) {
-                tup.append(null);
-            }
-        }
-        return tup;
-    }
-
-    @Override
-    public void putNext(Tuple f) throws IOException {
-        try {
-            writer.write(null, f);
-        } catch (InterruptedException e) {
-            throw new IOException(e);
-        }
-    }
-
-    private void addTupleValue(ArrayList<Object> tuple, byte[] buf, int start, int end) {
-        tuple.add(readField(buf, start, end));
-    }
-
-    /**
-     * Read the bytes between start and end into a DataByteArray for inclusion in the return tuple.
-     * @param bytes byte array to copy data from
-     * @param start starting point to copy from
-     * @param end ending point to copy to, exclusive.
-     * @return
-     */
-    protected DataByteArray readField(byte[] bytes, int start, int end) {
-        if (start == end) {
-            return null;
-        } else {
-            return new DataByteArray(bytes, start, end);
-        }
-    }
-
-    @Override
-    public RequiredFieldResponse pushProjection(RequiredFieldList requiredFieldList) throws FrontendException {
-        if (requiredFieldList == null)
-            return null;
-        if (requiredFieldList.getFields() != null)
-        {
-            int lastColumn = -1;
-            for (RequiredField rf: requiredFieldList.getFields())
-            {
-                if (rf.getIndex()>lastColumn)
-                {
-                    lastColumn = rf.getIndex();
-                }
-            }
-            mRequiredColumns = new boolean[lastColumn+1];
-            for (RequiredField rf: requiredFieldList.getFields())
-            {
-                if (rf.getIndex()!=-1)
-                    mRequiredColumns[rf.getIndex()] = true;
-            }
-            
-            /* Lame Hack starts */
-            
-            try{
-            	
-            	File file = new File("required_cols");                
-        		file.createNewFile();  
-            	PrintWriter writer = new PrintWriter("required_cols", "UTF-8");
-            	
-            	String col_hack="";
-            	for(int lol=0;lol<mRequiredColumns.length;lol++){
-            		
-            		col_hack = col_hack + mRequiredColumns[lol] + ",";
-            		
-            	}            	
-            	
-            	if (col_hack.length() > 0 && col_hack.charAt(col_hack.length()-1)==',') {
-            		col_hack = col_hack.substring(0, col_hack.length()-1);
-            	}
-            	writer.println("" + col_hack);
-            	writer.close();
-            	
-            	
-            	Configuration confF = new Configuration();
-                confF.addResource(new Path(System.getenv("HADOOP_CONF_DIR") + "/core-site.xml"));
-                confF.addResource(new Path(System.getenv("HADOOP_CONF_DIR") + "/hdfs-site.xml"));
-                
-                FileSystem fileSystem = FileSystem.get(confF);
-                
-                // Check if the file already exists
-                Path pathF = new Path("/tmp/required_cols");
-                if (fileSystem.exists(pathF)) {
-                	fileSystem.delete(pathF, true);
-                    
-                }
-
-                // Create a new file and write data to it.
-                FSDataOutputStream outF = fileSystem.create(pathF);
-                outF.writeBytes(col_hack);
-
-                // Close all the file descripters
-                
-                outF.close();
-                //fileSystem.close();
-                
-            	
-            }catch(Exception e){ e.printStackTrace(); System.out.println("Lame Hack Fails!!!!===>" + e); }
-            
-            /* Lame Hack ends */
-            
-            
-            Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass());
-            try {
-                p.setProperty(signature, ObjectSerializer.serialize(mRequiredColumns));
-            } catch (Exception e) {
-                throw new RuntimeException("Cannot serialize mRequiredColumns");
-            }
-        }
-        return new RequiredFieldResponse(true);
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (obj instanceof PigStorage)
-            return equals((PigStorage)obj);
-        else
-            return false;
-    }
-
-    public boolean equals(PigStorage other) {
-        return this.fieldDel == other.fieldDel;
-    }
-
-    @Override
-    public InputFormat getInputFormat() {
-        if(loadLocation.endsWith(".bz2") || loadLocation.endsWith(".bz")) {
-            return new Bzip2TextInputFormat();
-        } else {
-            return new PigTextInputFormat();
-        }
-    }
-
-    @Override
-    public void prepareToRead(RecordReader reader, PigSplit split) {
-        in = reader;
-        if (tagFile || tagPath) {
-            sourcePath = ((FileSplit)split.getWrappedSplit()).getPath();
-        }
-    }
-
-    @Override
-    public void setLocation(String location, Job job)
-    throws IOException {
-        loadLocation = location;
-        FileInputFormat.setInputPaths(job, location);
-    }
-
-    @Override
-    public OutputFormat getOutputFormat() {
-        return new PigTextOutputFormat(fieldDel);
-    }
-
-    @Override
-    public void prepareToWrite(RecordWriter writer) {
-        this.writer = writer;
-    }
-
-    @Override
-    public void setStoreLocation(String location, Job job) throws IOException {
-        job.getConfiguration().set("mapred.textoutputformat.separator", "");
-        FileOutputFormat.setOutputPath(job, new Path(location));
-
-        if( "true".equals( job.getConfiguration().get( "output.compression.enabled" ) ) ) {
-            FileOutputFormat.setCompressOutput( job, true );
-            String codec = job.getConfiguration().get( "output.compression.codec" );
-            try {
-                FileOutputFormat.setOutputCompressorClass( job,  (Class<? extends CompressionCodec>) Class.forName( codec ) );
-            } catch (ClassNotFoundException e) {
-                throw new RuntimeException("Class not found: " + codec );
-            }
-        } else {
-            // This makes it so that storing to a directory ending with ".gz" or ".bz2" works.
-            setCompression(new Path(location), job);
-        }
-    }
-
-    private void setCompression(Path path, Job job) {
-     	String location=path.getName();
-        if (location.endsWith(".bz2") || location.endsWith(".bz")) {
-            FileOutputFormat.setCompressOutput(job, true);
-            FileOutputFormat.setOutputCompressorClass(job,  BZip2Codec.class);
-        }  else if (location.endsWith(".gz")) {
-            FileOutputFormat.setCompressOutput(job, true);
-            FileOutputFormat.setOutputCompressorClass(job, GzipCodec.class);
-        } else {
-            FileOutputFormat.setCompressOutput( job, false);
-        }
-    }
-
-    @Override
-    public void checkSchema(ResourceSchema s) throws IOException {
-
-    }
-
-    @Override
-    public String relToAbsPathForStoreLocation(String location, Path curDir)
-    throws IOException {
-        return LoadFunc.getAbsolutePath(location, curDir);
-    }
-
-    @Override
-    public int hashCode() {
-        return fieldDel;
-    }
+	/**
+	 * Constructs a Pig loader that uses specified character as a field delimiter.
+	 * <p>
+	 * Understands the following options, which can be specified in the second paramter:
+	 * <ul>
+	 * <li><code>-schema</code> Loads / Stores the schema of the relation using a hidden JSON file.
+	 * <li><code>-noschema</code> Ignores a stored schema during loading.
+	 * <li><code>-tagFile</code> Appends input source file name to beginning of each tuple.
+	 * <li><code>-tagPath</code> Appends input source file path to beginning of each tuple.
+	 * </ul>
+	 * @param delimiter the single byte character that is used to separate fields.
+	 * @param options a list of options that can be used to modify PigStorage behavior
+	 * @throws ParseException
+	 */
+	public PigStorage(String delimiter, String options) {
+		populateValidOptions();
+		fieldDel = StorageUtil.parseFieldDel(delimiter);
+		String[] optsArr = options.split(" ");
+		try {
+			configuredOptions = parser.parse(validOptions, optsArr);
+			isSchemaOn = configuredOptions.hasOption("schema");
+			dontLoadSchema = configuredOptions.hasOption("noschema");
+			tagFile = configuredOptions.hasOption(TAG_SOURCE_FILE);
+			tagPath = configuredOptions.hasOption(TAG_SOURCE_PATH);
+			// TODO: Remove -tagsource in 0.13. For backward compatibility, we
+			// need tagsource to be supported until at least 0.12
+			if (configuredOptions.hasOption("tagsource")) {
+				mLog.warn("'-tagsource' is deprecated. Use '-tagFile' instead.");
+				tagFile = true;
+			}
 
 
-    @Override
-    public void setUDFContextSignature(String signature) {
-        this.signature = signature;
-    }
+		} catch (ParseException e) {
+			HelpFormatter formatter = new HelpFormatter();
+			formatter.printHelp( "PigStorage(',', '[options]')", validOptions);
+			// We wrap this exception in a Runtime exception so that
+			// existing loaders that extend PigStorage don't break
+			throw new RuntimeException(e);
+		}
+	}
 
-    @Override
-    public List<OperatorSet> getFeatures() {
-        return Arrays.asList(LoadPushDown.OperatorSet.PROJECTION);
-    }
+	@Override
+	public Tuple getNext() throws IOException {
+		mProtoTuple = new ArrayList<Object>();
+		if (!mRequiredColumnsInitialized) {
+			if (signature!=null) {
+				Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass());
+				mRequiredColumns = (boolean[])ObjectSerializer.deserialize(p.getProperty(signature));
 
-    @Override
-    public void setStoreFuncUDFContextSignature(String signature) {
-    }
+				/* Lame Hack begins */
+				if(mRequiredColumns == null){
+					try{
 
-    @Override
-    public void cleanupOnFailure(String location, Job job)
-    throws IOException {
-        StoreFunc.cleanupOnFailureImpl(location, job);
-    }
+						Configuration confX = new Configuration();
+						Path coreSitePath = new Path(System.getenv("HADOOP_HOME"), "/conf/core-site.xml");
+						confX.addResource(coreSitePath);
+						FileSystem fileSystem = FileSystem.get(confX);
+						
+						Path pt=new Path("/tmp/required_cols");
+												
+						BufferedReader br=new BufferedReader(new InputStreamReader(fileSystem.open(pt)));
+						String line;
+						line=br.readLine();
+						while (line != null){
+							
+							String[] tocks = line.split(",");
+							if(tocks.length > 0){
+								mRequiredColumns = new boolean[tocks.length];
 
-    @Override
-    public void cleanupOnSuccess(String location, Job job)
-    throws IOException {
-        // DEFAULT: do nothing
-    }
+								for(int il=0;il<tocks.length;il++){
+
+									if(tocks[il].equalsIgnoreCase("true")){
+										mRequiredColumns[il] = true;
+									}else if(tocks[il].equalsIgnoreCase("true")){
+										mRequiredColumns[il] = false;
+									}
+								}
+							}
+
+							line = br.readLine();
+						}
+
+						br.close();
+
+					}catch(Exception e){ e.printStackTrace(); System.out.println("Lame hack fails!!"); }
+
+				}
+
+				/* Lame Hack Ends */
+
+			}
+			mRequiredColumnsInitialized = true;
+		}
+		//Prepend input source path if source tagging is enabled
+		if(tagFile) {
+			mProtoTuple.add(new DataByteArray(sourcePath.getName()));
+		} else if (tagPath) {
+			mProtoTuple.add(new DataByteArray(sourcePath.toString()));
+		}
+
+		try {
+			boolean notDone = in.nextKeyValue();
+			if (!notDone) {
+				return null;
+			}
+			Text value = (Text) in.getCurrentValue();
+			byte[] buf = value.getBytes();
+			int len = value.getLength();
+			int start = 0;
+			int fieldID = 0;
+			for (int i = 0; i < len; i++) {
+				if (buf[i] == fieldDel) {
+					if (mRequiredColumns==null || (mRequiredColumns.length>fieldID && mRequiredColumns[fieldID]))
+						addTupleValue(mProtoTuple, buf, start, i);
+					start = i + 1;
+					fieldID++;
+				}
+			}
+			// pick up the last field
+			if (start <= len && (mRequiredColumns==null || (mRequiredColumns.length>fieldID && mRequiredColumns[fieldID]))) {
+				addTupleValue(mProtoTuple, buf, start, len);
+			}
+			Tuple t =  mTupleFactory.newTupleNoCopy(mProtoTuple);
+
+			return dontLoadSchema ? t : applySchema(t);
+		} catch (InterruptedException e) {
+			int errCode = 6018;
+			String errMsg = "Error while reading input";
+			throw new ExecException(errMsg, errCode,
+					PigException.REMOTE_ENVIRONMENT, e);
+		}
+	}
+
+	private Tuple applySchema(Tuple tup) throws IOException {
+
+		if ( caster == null) {
+			caster = getLoadCaster();
+		}
+		if (signature != null && schema == null) {
+			Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass(),
+					new String[] {signature});
+			String serializedSchema = p.getProperty(signature+".schema");
+			if (serializedSchema == null) return tup;
+			try {
+				schema = new ResourceSchema(Utils.getSchemaFromString(serializedSchema));
+			} catch (ParserException e) {
+				mLog.error("Unable to parse serialized schema " + serializedSchema, e);
+			}
+		}
+
+		if (schema != null) {
+
+			ResourceFieldSchema[] fieldSchemas = schema.getFields();
+			int tupleIdx = 0;
+			// If some fields have been projected out, the tuple
+			// only contains required fields.
+			// We walk the requiredColumns array to find required fields,
+			// and cast those.
+			for (int i = 0; i < Math.min(fieldSchemas.length, tup.size()); i++) {
+				if (mRequiredColumns == null || (mRequiredColumns.length>i && mRequiredColumns[i])) {
+					Object val = null;
+					if(tup.get(tupleIdx) != null){
+						byte[] bytes = ((DataByteArray) tup.get(tupleIdx)).get();
+						val = CastUtils.convertToType(caster, bytes,
+								fieldSchemas[i], fieldSchemas[i].getType());
+						tup.set(tupleIdx, val);
+					}
+					tupleIdx++;
+				}
+			}
+			for (int i = tup.size(); i < fieldSchemas.length; i++) {
+				tup.append(null);
+			}
+		}
+		return tup;
+	}
+
+	@Override
+	public void putNext(Tuple f) throws IOException {
+		try {
+			writer.write(null, f);
+		} catch (InterruptedException e) {
+			throw new IOException(e);
+		}
+	}
+
+	private void addTupleValue(ArrayList<Object> tuple, byte[] buf, int start, int end) {
+		tuple.add(readField(buf, start, end));
+	}
+
+	/**
+	 * Read the bytes between start and end into a DataByteArray for inclusion in the return tuple.
+	 * @param bytes byte array to copy data from
+	 * @param start starting point to copy from
+	 * @param end ending point to copy to, exclusive.
+	 * @return
+	 */
+	protected DataByteArray readField(byte[] bytes, int start, int end) {
+		if (start == end) {
+			return null;
+		} else {
+			return new DataByteArray(bytes, start, end);
+		}
+	}
+
+	@Override
+	public RequiredFieldResponse pushProjection(RequiredFieldList requiredFieldList) throws FrontendException {
+		if (requiredFieldList == null)
+			return null;
+		if (requiredFieldList.getFields() != null)
+		{
+			int lastColumn = -1;
+			for (RequiredField rf: requiredFieldList.getFields())
+			{
+				if (rf.getIndex()>lastColumn)
+				{
+					lastColumn = rf.getIndex();
+				}
+			}
+			mRequiredColumns = new boolean[lastColumn+1];
+			for (RequiredField rf: requiredFieldList.getFields())
+			{
+				if (rf.getIndex()!=-1)
+					mRequiredColumns[rf.getIndex()] = true;
+			}
+
+			/* Lame Hack starts */
+
+			try{
+
+				String col_hack="";
+				for(int col_i=0;col_i<mRequiredColumns.length;col_i++){
+
+					col_hack = col_hack + mRequiredColumns[col_i] + ",";
+
+				}            	
+
+				if (col_hack.length() > 0 && col_hack.charAt(col_hack.length()-1)==',') {
+					col_hack = col_hack.substring(0, col_hack.length()-1);
+				}
+
+				Configuration confF = new Configuration();
+
+				FileSystem fileSystem = FileSystem.get(confF);
+
+				// Check if the file already exists
+				Path pathF = new Path("/tmp/required_cols");
+				if (fileSystem.exists(pathF)) {
+					fileSystem.delete(pathF, true);
+
+				}
+
+				// Create a new file and write data to it.
+				FSDataOutputStream outF = fileSystem.create(pathF);
+				outF.writeBytes(col_hack);
+
+				// Close all the file descripters
+
+				outF.close();
+				//fileSystem.close();
+
+
+			}catch(Exception e){ e.printStackTrace(); System.out.println("Lame Hack Fails!!!!===>" + e); }
+
+
+			/* Lame Hack ends */
+
+
+			Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass());
+			try {
+				p.setProperty(signature, ObjectSerializer.serialize(mRequiredColumns));
+			} catch (Exception e) {
+				throw new RuntimeException("Cannot serialize mRequiredColumns");
+			}
+		}
+		return new RequiredFieldResponse(true);
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (obj instanceof PigStorage)
+			return equals((PigStorage)obj);
+		else
+			return false;
+	}
+
+	public boolean equals(PigStorage other) {
+		return this.fieldDel == other.fieldDel;
+	}
+
+	@Override
+	public InputFormat getInputFormat() {
+		if(loadLocation.endsWith(".bz2") || loadLocation.endsWith(".bz")) {
+			return new Bzip2TextInputFormat();
+		} else {
+			return new PigTextInputFormat();
+		}
+	}
+
+	@Override
+	public void prepareToRead(RecordReader reader, PigSplit split) {
+		in = reader;
+		if (tagFile || tagPath) {
+			sourcePath = ((FileSplit)split.getWrappedSplit()).getPath();
+		}
+	}
+
+	@Override
+	public void setLocation(String location, Job job)
+			throws IOException {
+		loadLocation = location;
+		FileInputFormat.setInputPaths(job, location);
+	}
+
+	@Override
+	public OutputFormat getOutputFormat() {
+		return new PigTextOutputFormat(fieldDel);
+	}
+
+	@Override
+	public void prepareToWrite(RecordWriter writer) {
+		this.writer = writer;
+	}
+
+	@Override
+	public void setStoreLocation(String location, Job job) throws IOException {
+		job.getConfiguration().set("mapred.textoutputformat.separator", "");
+		FileOutputFormat.setOutputPath(job, new Path(location));
+
+		if( "true".equals( job.getConfiguration().get( "output.compression.enabled" ) ) ) {
+			FileOutputFormat.setCompressOutput( job, true );
+			String codec = job.getConfiguration().get( "output.compression.codec" );
+			try {
+				FileOutputFormat.setOutputCompressorClass( job,  (Class<? extends CompressionCodec>) Class.forName( codec ) );
+			} catch (ClassNotFoundException e) {
+				throw new RuntimeException("Class not found: " + codec );
+			}
+		} else {
+			// This makes it so that storing to a directory ending with ".gz" or ".bz2" works.
+			setCompression(new Path(location), job);
+		}
+	}
+
+	private void setCompression(Path path, Job job) {
+		String location=path.getName();
+		if (location.endsWith(".bz2") || location.endsWith(".bz")) {
+			FileOutputFormat.setCompressOutput(job, true);
+			FileOutputFormat.setOutputCompressorClass(job,  BZip2Codec.class);
+		}  else if (location.endsWith(".gz")) {
+			FileOutputFormat.setCompressOutput(job, true);
+			FileOutputFormat.setOutputCompressorClass(job, GzipCodec.class);
+		} else {
+			FileOutputFormat.setCompressOutput( job, false);
+		}
+	}
+
+	@Override
+	public void checkSchema(ResourceSchema s) throws IOException {
+
+	}
+
+	@Override
+	public String relToAbsPathForStoreLocation(String location, Path curDir)
+			throws IOException {
+		return LoadFunc.getAbsolutePath(location, curDir);
+	}
+
+	@Override
+	public int hashCode() {
+		return fieldDel;
+	}
+
+
+	@Override
+	public void setUDFContextSignature(String signature) {
+		this.signature = signature;
+	}
+
+	@Override
+	public List<OperatorSet> getFeatures() {
+		return Arrays.asList(LoadPushDown.OperatorSet.PROJECTION);
+	}
+
+	@Override
+	public void setStoreFuncUDFContextSignature(String signature) {
+	}
+
+	@Override
+	public void cleanupOnFailure(String location, Job job)
+			throws IOException {
+		StoreFunc.cleanupOnFailureImpl(location, job);
+	}
+
+	@Override
+	public void cleanupOnSuccess(String location, Job job)
+			throws IOException {
+		// DEFAULT: do nothing
+	}
 
 
 
-    //------------------------------------------------------------------------
-    // Implementation of LoadMetaData interface
+	//------------------------------------------------------------------------
+	// Implementation of LoadMetaData interface
 
-    @Override
-    public ResourceSchema getSchema(String location,
-            Job job) throws IOException {
-        if (!dontLoadSchema) {
-            schema = (new JsonMetadata()).getSchema(location, job, isSchemaOn);
+	@Override
+	public ResourceSchema getSchema(String location,
+			Job job) throws IOException {
+		if (!dontLoadSchema) {
+			schema = (new JsonMetadata()).getSchema(location, job, isSchemaOn);
 
-            if (signature != null && schema != null) {
-                if(tagFile) {
-                    schema = Utils.getSchemaWithInputSourceTag(schema, "INPUT_FILE_NAME");
-                } else if(tagPath) {
-                    schema = Utils.getSchemaWithInputSourceTag(schema, "INPUT_FILE_PATH");
-                }
-                Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass(),
-                        new String[] {signature});
-                p.setProperty(signature + ".schema", schema.toString());
-            }
-        }
-        return schema;
-    }
+			if (signature != null && schema != null) {
+				if(tagFile) {
+					schema = Utils.getSchemaWithInputSourceTag(schema, "INPUT_FILE_NAME");
+				} else if(tagPath) {
+					schema = Utils.getSchemaWithInputSourceTag(schema, "INPUT_FILE_PATH");
+				}
+				Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass(),
+						new String[] {signature});
+				p.setProperty(signature + ".schema", schema.toString());
+			}
+		}
+		return schema;
+	}
 
-    @Override
-    public ResourceStatistics getStatistics(String location,
-            Job job) throws IOException {
-        return null;
-    }
+	@Override
+	public ResourceStatistics getStatistics(String location,
+			Job job) throws IOException {
+		return null;
+	}
 
-    @Override
-    public void setPartitionFilter(Expression partitionFilter)
-    throws IOException {
-    }
+	@Override
+	public void setPartitionFilter(Expression partitionFilter)
+			throws IOException {
+	}
 
-    @Override
-    public String[] getPartitionKeys(String location, Job job)
-    throws IOException {
-        return null;
-    }
+	@Override
+	public String[] getPartitionKeys(String location, Job job)
+			throws IOException {
+		return null;
+	}
 
-    //------------------------------------------------------------------------
-    // Implementation of StoreMetadata
+	//------------------------------------------------------------------------
+	// Implementation of StoreMetadata
 
-    @Override
-    public void storeSchema(ResourceSchema schema, String location,
-            Job job) throws IOException {
-        if (isSchemaOn) {
-            JsonMetadata metadataWriter = new JsonMetadata();
-            byte recordDel = '\n';
-            metadataWriter.setFieldDel(fieldDel);
-            metadataWriter.setRecordDel(recordDel);
-            metadataWriter.storeSchema(schema, location, job);
-        }
-    }
+	@Override
+	public void storeSchema(ResourceSchema schema, String location,
+			Job job) throws IOException {
+		if (isSchemaOn) {
+			JsonMetadata metadataWriter = new JsonMetadata();
+			byte recordDel = '\n';
+			metadataWriter.setFieldDel(fieldDel);
+			metadataWriter.setRecordDel(recordDel);
+			metadataWriter.storeSchema(schema, location, job);
+		}
+	}
 
-    @Override
-    public void storeStatistics(ResourceStatistics stats, String location,
-            Job job) throws IOException {
+	@Override
+	public void storeStatistics(ResourceStatistics stats, String location,
+			Job job) throws IOException {
 
-    }
+	}
 }
