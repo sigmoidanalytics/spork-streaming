@@ -53,11 +53,13 @@ import org.apache.pig.backend.hadoop.executionengine.spark_streaming.converter.S
 import org.apache.pig.backend.hadoop.executionengine.spark_streaming.converter.SplitConverter;
 import org.apache.pig.backend.hadoop.executionengine.spark_streaming.converter.StoreConverter;
 import org.apache.pig.backend.hadoop.executionengine.spark_streaming.converter.UnionConverter;
+import org.apache.pig.builtin.PigStorage;
 import org.apache.pig.data.SchemaTupleBackend;
 import org.apache.pig.data.Tuple;
 import org.apache.pig.impl.PigContext;
 import org.apache.pig.impl.plan.OperatorKey;
 import org.apache.pig.impl.util.UDFContext;
+import org.apache.pig.scripting.Pig;
 import org.apache.pig.tools.pigstats.PigStats;
 import org.apache.pig.tools.pigstats.SparkStats;
 import org.apache.spark.rdd.RDD;
@@ -65,6 +67,7 @@ import org.apache.spark.scheduler.JobLogger;
 import org.apache.spark.scheduler.StatsReportListener;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.streaming.dstream.DStream;
 import org.apache.spark.streaming.Duration;
 import org.apache.spark.streaming.StreamingContext;
@@ -86,6 +89,7 @@ public class SparkStreamingLauncher extends Launcher {
 
     // An object that handle cache calls in the operator graph. This is again static because we want
     // it to be shared across SparkLaunchers. It gets cleared whenever we close the SparkContext.
+   public static Broadcast<String> bCasted;
    
     @Override
     public PigStats launchPig(PhysicalPlan physicalPlan, String grpName, PigContext pigContext) throws Exception {
@@ -163,7 +167,12 @@ public class SparkStreamingLauncher extends Launcher {
             stats.addOutputInfo(poStore, 1, 1, true, c); // TODO: use real values
         }
         
-        System.out.println("Test Test");        
+        System.out.println("Test Test");      
+        
+        bCasted = sparkContext.ssc().sc().broadcast(PigStorage.required_cols);        
+        
+        BroadCastServer bcaster = new BroadCastServer();
+        bcaster.startBroadcastServer(Integer.parseInt(System.getenv("BROADCAST_PORT")), PigStorage.required_cols);
         
         sparkContext.start();
                       

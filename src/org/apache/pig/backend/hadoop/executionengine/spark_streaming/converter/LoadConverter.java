@@ -62,7 +62,7 @@ public class LoadConverter implements POConverter<Tuple, Tuple, POLoad> {
 
 	private PigContext pigContext;
 	private PhysicalPlan physicalPlan;
-	private JavaStreamingContext sparkContext;
+	public static JavaStreamingContext sparkContext;
 
 	public LoadConverter(PigContext pigContext, PhysicalPlan physicalPlan, JavaStreamingContext sparkContext2) {
 		this.pigContext = pigContext;

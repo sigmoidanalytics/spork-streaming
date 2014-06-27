@@ -74,8 +74,10 @@ import org.apache.pig.backend.executionengine.ExecException;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigSplit;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigTextInputFormat;
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigTextOutputFormat;
+import org.apache.pig.backend.hadoop.executionengine.spark_streaming.BroadCastClient;
 import org.apache.pig.backend.hadoop.executionengine.spark_streaming.SparkStreamingLauncher;
 import org.apache.pig.backend.hadoop.executionengine.spark_streaming.SparkUtil;
+import org.apache.pig.backend.hadoop.executionengine.spark_streaming.converter.LoadConverter;
 import org.apache.pig.bzip2r.Bzip2TextInputFormat;
 import org.apache.pig.data.DataByteArray;
 import org.apache.pig.data.Tuple;
@@ -87,6 +89,9 @@ import org.apache.pig.impl.util.StorageUtil;
 import org.apache.pig.impl.util.UDFContext;
 import org.apache.pig.impl.util.Utils;
 import org.apache.pig.parser.ParserException;
+import org.apache.spark.broadcast.Broadcast;
+import org.apache.spark.streaming.api.java.JavaStreamingContext;
+import org.python.antlr.op.Load;
 
 /**
  * A load function that parses a line of input into fields using a character delimiter.
@@ -162,6 +167,9 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 
 	protected boolean[] mRequiredColumns = null;
 	private boolean mRequiredColumnsInitialized = false;
+	
+	// For broadcasting
+	public static String required_cols;
 
 	// Indicates whether the input file name/path should be read.
 	private boolean tagFile = false;
@@ -252,7 +260,24 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 						confX.addResource(coreSitePath);
 						FileSystem fileSystem = FileSystem.get(confX);
 						
-						Path pt=new Path("/tmp/required_cols");
+						BroadCastClient bcc  = new BroadCastClient(System.getenv("BROADCAST_SERVER"), Integer.parseInt(System.getenv("BROADCAST_PORT")));
+						String response = bcc.getBroadCastMessage("require_fields");
+						
+						String[] tocks = response.split(",");
+						if(tocks.length > 0){
+							mRequiredColumns = new boolean[tocks.length];
+
+							for(int il=0;il<tocks.length;il++){
+
+								if(tocks[il].equalsIgnoreCase("true")){
+									mRequiredColumns[il] = true;
+								}else if(tocks[il].equalsIgnoreCase("true")){
+									mRequiredColumns[il] = false;
+								}
+							}
+						}
+						
+						/*Path pt=new Path("/tmp/required_cols");
 												
 						BufferedReader br=new BufferedReader(new InputStreamReader(fileSystem.open(pt)));
 						String line;
@@ -276,7 +301,7 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 							line = br.readLine();
 						}
 
-						br.close();
+						br.close();*/
 
 					}catch(Exception e){ e.printStackTrace(); System.out.println("Lame hack fails!!"); }
 
@@ -435,7 +460,7 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 					col_hack = col_hack.substring(0, col_hack.length()-1);
 				}
 
-				Configuration confF = new Configuration();
+				/*Configuration confF = new Configuration();
 
 				FileSystem fileSystem = FileSystem.get(confF);
 
@@ -452,9 +477,10 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 
 				// Close all the file descripters
 
-				outF.close();
+				outF.close();*/
 				//fileSystem.close();
 
+				required_cols = col_hack;
 
 			}catch(Exception e){ e.printStackTrace(); System.out.println("Lame Hack Fails!!!!===>" + e); }
 
