@@ -168,8 +168,8 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 	protected boolean[] mRequiredColumns = null;
 	private boolean mRequiredColumnsInitialized = false;
 	
-	// For broadcasting
-	public static String required_cols;
+	// For the TCPServer
+	public static boolean[] required_fields;
 
 	// Indicates whether the input file name/path should be read.
 	private boolean tagFile = false;
@@ -251,7 +251,7 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 				Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass());
 				mRequiredColumns = (boolean[])ObjectSerializer.deserialize(p.getProperty(signature));
 
-				/* Lame Hack begins */
+				/* Get the required columns from TCPServer*/
 				if(mRequiredColumns == null){
 					try{
 
@@ -260,54 +260,16 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 						confX.addResource(coreSitePath);
 						FileSystem fileSystem = FileSystem.get(confX);
 						
-						BroadCastClient bcc  = new BroadCastClient(System.getenv("BROADCAST_SERVER"), Integer.parseInt(System.getenv("BROADCAST_PORT")));
-						String response = bcc.getBroadCastMessage("require_fields");
-						
-						String[] tocks = response.split(",");
-						if(tocks.length > 0){
-							mRequiredColumns = new boolean[tocks.length];
-
-							for(int il=0;il<tocks.length;il++){
-
-								if(tocks[il].equalsIgnoreCase("true")){
-									mRequiredColumns[il] = true;
-								}else if(tocks[il].equalsIgnoreCase("true")){
-									mRequiredColumns[il] = false;
-								}
-							}
-						}
-						
-						/*Path pt=new Path("/tmp/required_cols");
+						BroadCastClient bcc  = new BroadCastClient(System.getenv("BROADCAST_MASTER_IP"), Integer.parseInt(System.getenv("BROADCAST_PORT")));
+						boolean[] response = (boolean[]) bcc.getBroadCastMessage("require_fields");
+						mRequiredColumns = response;
 												
-						BufferedReader br=new BufferedReader(new InputStreamReader(fileSystem.open(pt)));
-						String line;
-						line=br.readLine();
-						while (line != null){
-							
-							String[] tocks = line.split(",");
-							if(tocks.length > 0){
-								mRequiredColumns = new boolean[tocks.length];
 
-								for(int il=0;il<tocks.length;il++){
-
-									if(tocks[il].equalsIgnoreCase("true")){
-										mRequiredColumns[il] = true;
-									}else if(tocks[il].equalsIgnoreCase("true")){
-										mRequiredColumns[il] = false;
-									}
-								}
-							}
-
-							line = br.readLine();
-						}
-
-						br.close();*/
-
-					}catch(Exception e){ e.printStackTrace(); System.out.println("Lame hack fails!!"); }
+					}catch(Exception e){ e.printStackTrace(); }
 
 				}
 
-				/* Lame Hack Ends */
+				/* TCPServer Hack Ends */
 
 			}
 			mRequiredColumnsInitialized = true;
@@ -445,47 +407,16 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 					mRequiredColumns[rf.getIndex()] = true;
 			}
 
-			/* Lame Hack starts */
+			/* For the TCPServer */
 
 			try{
 
-				String col_hack="";
-				for(int col_i=0;col_i<mRequiredColumns.length;col_i++){
+				required_fields = mRequiredColumns;
 
-					col_hack = col_hack + mRequiredColumns[col_i] + ",";
-
-				}            	
-
-				if (col_hack.length() > 0 && col_hack.charAt(col_hack.length()-1)==',') {
-					col_hack = col_hack.substring(0, col_hack.length()-1);
-				}
-
-				/*Configuration confF = new Configuration();
-
-				FileSystem fileSystem = FileSystem.get(confF);
-
-				// Check if the file already exists
-				Path pathF = new Path("/tmp/required_cols");
-				if (fileSystem.exists(pathF)) {
-					fileSystem.delete(pathF, true);
-
-				}
-
-				// Create a new file and write data to it.
-				FSDataOutputStream outF = fileSystem.create(pathF);
-				outF.writeBytes(col_hack);
-
-				// Close all the file descripters
-
-				outF.close();*/
-				//fileSystem.close();
-
-				required_cols = col_hack;
-
-			}catch(Exception e){ e.printStackTrace(); System.out.println("Lame Hack Fails!!!!===>" + e); }
+			}catch(Exception e){ e.printStackTrace(); }
 
 
-			/* Lame Hack ends */
+			/* TCPServer Hack ends */
 
 
 			Properties p = UDFContext.getUDFContext().getUDFProperties(this.getClass());

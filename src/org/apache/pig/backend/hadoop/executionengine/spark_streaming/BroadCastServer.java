@@ -3,39 +3,34 @@ package org.apache.pig.backend.hadoop.executionengine.spark_streaming;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.HashMap;
 import java.util.Map;
 
-/* Relay server thread to serve missed Objects */
+/* TCPServer thread to serve missed Objects */
 
 public class BroadCastServer extends Thread{
 
 	private ServerSocket serverSocket;
-	private Map<Object, Object> storage = null;
+	private static Map<Object, Object> storage = null;
 
-	private String test = null;
 	int port;
-
-	public BroadCastServer(){
-		
-	}
 	
-	public BroadCastServer(int port,String test) throws IOException{
-		
-		this.port = port;		
-		this.test = test;
-		
-		serverSocket = new ServerSocket(port);
-		//serverSocket.setSoTimeout(10000);
+	public BroadCastServer(){}
+	
+	public BroadCastServer(int port) throws IOException{
 
+		this.port = port;	
+		serverSocket = new ServerSocket(port);
 		
 	}
 
 	public void run(){
 		while(true){
 			try{
-				
+
 				System.out.println("Waiting for client on port " +
 						serverSocket.getLocalPort() + "...");
 
@@ -44,12 +39,22 @@ public class BroadCastServer extends Thread{
 						+ server.getRemoteSocketAddress());
 				DataInputStream in =
 						new DataInputStream(server.getInputStream());
-				System.out.println("Executor asking for :" + in.readUTF());
-				DataOutputStream out =
-						new DataOutputStream(server.getOutputStream());
-				
-				out.writeUTF(test);
-				
+				String request = in.readUTF();
+				System.out.println("Executor asking for :" + request);
+				ObjectOutputStream out =
+						new ObjectOutputStream(server.getOutputStream());
+
+				if(storage.get(request) != null){
+
+					out.writeObject(storage.get(request));
+
+				}else{
+
+					out.writeUTF("Requested resource not available!!");
+
+				}
+
+
 				server.close();
 
 			}catch(Exception s){				
@@ -58,18 +63,24 @@ public class BroadCastServer extends Thread{
 			}
 		}
 	}
+	
+	public void startBroadcastServer(int port){
 
-
-	public void startBroadcastServer(int port, String test){
-
-		try{
-
-			Thread t = new BroadCastServer(port, test);
+		try{	
+			
+			storage = new HashMap<Object, Object>();			
+			Thread t = new BroadCastServer(port);
 			t.start();
 
 		}catch(Exception e){
 			e.printStackTrace();
 		}
+	}
+	
+	public void addResource(String reference, Object resource){
+		
+		storage.put(reference, resource);
+		
 	}
 
 }

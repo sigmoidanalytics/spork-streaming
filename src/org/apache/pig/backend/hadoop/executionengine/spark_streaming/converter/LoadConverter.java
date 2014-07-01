@@ -77,47 +77,19 @@ public class LoadConverter implements POConverter<Tuple, Tuple, POLoad> {
 		//        }
 		configureLoader(physicalPlan, poLoad, sparkContext.ssc().sc().hadoopConfiguration(),this.pigContext);
 
-		Iterator<PhysicalOperator> top = physicalPlan.iterator();
-		boolean isTwitter = false;
-		while(top.hasNext()){    		
-			String load = top.next().toString();
-
-			if(load.contains("hdfs://")){
-				String[] splitted = load.split("hdfs://");       		 
-				String url = "hdfs://" + splitted[1];
-
-				if(url.contains("/_twitter")){
-					isTwitter = true;        			
-				}
-				break;
-
-			}
-
+		boolean isTwitter = false;		
+		if(poLoad.getLFile().getFileName().contains("/_twitter")){
+			isTwitter = true;			
 		}
-
+		
 		if(!isTwitter){    	   
 
 			DStream<Tuple2<Text, Tuple>> hadoopRDD= sparkContext.ssc().fileStream(poLoad.getLFile().getFileName(), 
 					SparkUtil.getManifest(Text.class), 
 					SparkUtil.getManifest(Tuple.class), 
 					SparkUtil.getManifest(PigInputFormat.class));
-
-			//hadoopRDD.print();
-			/*
-			JavaDStream<String> mhadoopRDD = sparkContext.textFileStream(poLoad.getLFile().getFileName());
-			
-			stringTupleFunction tf = new stringTupleFunction();
-			
-			JavaDStream<Tuple> lulz = mhadoopRDD.map(tf);
-			
-			//lulz.print();			
-			
-			return lulz;
-			*/
-			
+						
 			JavaDStream<Tuple> hdfsTuple = new JavaDStream<Tuple>(hadoopRDD.map(TO_VALUE_FUNCTION,SparkUtil.getManifest(Tuple.class)),SparkUtil.getManifest(Tuple.class));
-
-			//hdfsTuple.print();
 			
 			return hdfsTuple;
 			
@@ -128,9 +100,7 @@ public class LoadConverter implements POConverter<Tuple, Tuple, POLoad> {
 			System.setProperty("twitter4j.oauth.consumerSecret","K9RhnuOdZJlxDgxKJawq1PLXmZYqdt3asvKvo4aqu6Mhe9yY2n");
 			System.setProperty("twitter4j.oauth.accessToken","2493987132-FxZ2Explk2AyGeIjUnHpw1ZzPQxvFBIFPRs0Ho7");
 			System.setProperty("twitter4j.oauth.accessTokenSecret","uBm4qg0eR4HRv9Byh45ja0qhzlikQ0KxfqByVrtzs3jYP");
-			//sparkContext.checkpoint("/home/akhld/mobi/temp/pig/twitter/");
-
-			//JavaDStream<Status> dtweets= sparkContext.twitterStream();
+			
 			JavaDStream<Status> dtweets = TwitterUtils.createStream(sparkContext);
 
 			System.out.println("=====Tweeets-Tweets=======");
