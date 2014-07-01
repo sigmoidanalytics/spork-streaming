@@ -254,11 +254,6 @@ LoadPushDown, LoadMetadata, StoreMetadata {
 				/* Get the required columns from TCPServer*/
 				if(mRequiredColumns == null){
 					try{
-
-						Configuration confX = new Configuration();
-						Path coreSitePath = new Path(System.getenv("HADOOP_HOME"), "/conf/core-site.xml");
-						confX.addResource(coreSitePath);
-						FileSystem fileSystem = FileSystem.get(confX);
 						
 						BroadCastClient bcc  = new BroadCastClient(System.getenv("BROADCAST_MASTER_IP"), Integer.parseInt(System.getenv("BROADCAST_PORT")));
 						boolean[] response = (boolean[]) bcc.getBroadCastMessage("require_fields");
