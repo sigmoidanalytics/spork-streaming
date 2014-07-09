@@ -83,7 +83,7 @@ export SPARK_WORKER_MEMORY=512m
 export SPARK_MEM=512m
 export SPARK_WORKER_INSTANCES=1
 
-export BROADCAST_HOST="localhost"
+export BROADCAST_MASTER_IP="localhost"
 export BROADCAST_PORT="6000"
 
 bin/pig -x spark "$@"
