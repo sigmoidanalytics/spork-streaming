@@ -171,7 +171,7 @@ public class SparkStreamingLauncher extends Launcher {
 		if(System.getenv("BROADCAST_PORT").length() == 0 || System.getenv("BROADCAST_MASTER_IP").length() == 0){
 			
 			System.out.println("Missing BROADCAST_POST/BROADCAST_HOST in the environment.");
-			LOG.error("Missing BROADCAST_POST/BROADCAST_HOST in the environment.");			
+			LOG.error("Missing BROADCAST_MASTER_IP/BROADCAST_PORT in the environment.");			
 			System.exit(1);
 			
 		}
@@ -179,7 +179,7 @@ public class SparkStreamingLauncher extends Launcher {
 		bcaster = new BroadCastServer();
 		bcaster.startBroadcastServer(Integer.parseInt(System.getenv("BROADCAST_PORT")));
 		bcaster.addResource("require_fields", PigStorage.required_fields);
-		
+
 		sparkContext.start();
 
 		return stats;
