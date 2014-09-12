@@ -96,10 +96,6 @@ public class LoadConverter implements POConverter<Tuple, Tuple, POLoad> {
 		}else{
 
 			System.out.println("=====Tweeets-Tweets=======");
-			System.setProperty("twitter4j.oauth.consumerKey","mGkece93BmDILkPGJ58lu5OS6");
-			System.setProperty("twitter4j.oauth.consumerSecret","K9RhnuOdZJlxDgxKJawq1PLXmZYqdt3asvKvo4aqu6Mhe9yY2n");
-			System.setProperty("twitter4j.oauth.accessToken","2493987132-FxZ2Explk2AyGeIjUnHpw1ZzPQxvFBIFPRs0Ho7");
-			System.setProperty("twitter4j.oauth.accessTokenSecret","uBm4qg0eR4HRv9Byh45ja0qhzlikQ0KxfqByVrtzs3jYP");
 			
 			JavaDStream<Status> dtweets = TwitterUtils.createStream(sparkContext);
 
